@@ -227,6 +227,58 @@ async function main() {
         await client.close(2000);
     });
 
+    await check('mocked transport drops a breadcrumb that logs the same object twice', async () => {
+        const envelopes: any[] = [];
+        const detail = { upload: SIGNED_URL };
+        Sentry.init({
+            dsn: 'https://public@o0.ingest.sentry.io/0',
+            defaultIntegrations: false,
+            autoSessionTracking: false,
+            sendClientReports: false,
+            beforeBreadcrumb: (breadcrumb) => redactPresignedUploadBreadcrumb(breadcrumb),
+            transport: () => ({
+                send: (envelope) => {
+                    envelopes.push(envelope);
+                    return Promise.resolve({});
+                },
+                flush: () => Promise.resolve(true)
+            })
+        });
+
+        Sentry.addBreadcrumb({
+            category: 'console',
+            level: 'error',
+            message: 'upload failed',
+            data: {
+                arguments: [detail, detail],
+                logger: 'console'
+            }
+        });
+        Sentry.addBreadcrumb({
+            category: 'xhr',
+            type: 'http',
+            data: {
+                method: 'POST',
+                url: ORDINARY_URL,
+                status_code: 401
+            }
+        });
+        Sentry.captureMessage('synthetic repeated object check');
+        const client = Sentry.getCurrentHub().getClient();
+        assert(!!client, 'Sentry client was not created');
+        await client.flush(2000);
+
+        const payload = envelopeText(envelopes);
+        assert(envelopes.length > 0, 'mock transport received no event');
+        assert(detail.upload === SIGNED_URL, 'repeated object was mutated');
+        assert(payload.indexOf(SIGNATURE) === -1, 'signature was captured from a repeated object');
+        assert(payload.indexOf(encodeURIComponent(CREDENTIAL)) === -1, 'encoded credential was captured from a repeated object');
+        assert(payload.indexOf(CREDENTIAL) === -1, 'credential was captured from a repeated object');
+        assert(payload.indexOf(ORDINARY_URL) !== -1, 'ordinary telemetry was removed');
+        assert(payload.indexOf('401') !== -1, 'ordinary status was removed');
+        await client.close(2000);
+    });
+
     if (failures > 0) {
         console.error('SENTRY_REDACTION_TESTS_FAILED ' + failures);
         process.exit(1);

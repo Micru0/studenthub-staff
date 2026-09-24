@@ -161,7 +161,7 @@ function redactValue(value, seen): { value: any; changed: boolean; unsafe: boole
         return { value, changed: false, unsafe: false };
     }
     if (seen.has(value)) {
-        return { value, changed: false, unsafe: false };
+        return { value, changed: false, unsafe: true };
     }
 
     if (!Array.isArray(value) && !isPlainObject(value)) {
